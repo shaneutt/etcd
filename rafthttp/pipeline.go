@@ -150,6 +150,7 @@ func (p *pipeline) post(data []byte) (err error) {
 	}()
 	done := make(chan struct{}, 1)
 	go func() {
+		time.Sleep(time.Millisecond)
 		select {
 		case <-done:
 		case <-p.stopc:

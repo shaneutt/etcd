@@ -16,6 +16,7 @@ package rafthttp
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -214,6 +215,7 @@ func TestStopBlockedPipeline(t *testing.T) {
 
 type roundTripperBlocker struct {
 	unblockc chan struct{}
+	mu       sync.Mutex
 	cancel   map[*http.Request]chan struct{}
 }
 
@@ -225,7 +227,10 @@ func newRoundTripperBlocker() *roundTripperBlocker {
 }
 func (t *roundTripperBlocker) RoundTrip(req *http.Request) (*http.Response, error) {
 	c := make(chan struct{}, 1)
+	t.mu.Lock()
+	fmt.Printf("register %p\n", req)
 	t.cancel[req] = c
+	t.mu.Unlock()
 	select {
 	case <-t.unblockc:
 		return &http.Response{StatusCode: http.StatusNoContent, Body: &nopReadCloser{}}, nil
@@ -237,9 +242,12 @@ func (t *roundTripperBlocker) unblock() {
 	close(t.unblockc)
 }
 func (t *roundTripperBlocker) CancelRequest(req *http.Request) {
+	t.mu.Lock()
+	fmt.Printf("cancel %p\n", req)
 	if c, ok := t.cancel[req]; ok {
 		c <- struct{}{}
 	}
+	t.mu.Unlock()
 }
 
 type respRoundTripper struct {
