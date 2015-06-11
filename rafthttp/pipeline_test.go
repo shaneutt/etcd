@@ -213,34 +213,33 @@ func TestStopBlockedPipeline(t *testing.T) {
 }
 
 type roundTripperBlocker struct {
-	c         chan error
-	mu        sync.Mutex
-	unblocked bool
+	unblock chan struct{}
+	cancel  map[*http.Request]chan error
 }
 
 func newRoundTripperBlocker() *roundTripperBlocker {
-	return &roundTripperBlocker{c: make(chan error)}
+	return &roundTripperBlocker{
+		unblock: make(chan struct{}),
+		cancel:  make(map[*http.Request]chan struct{}),
+	}
 }
 func (t *roundTripperBlocker) RoundTrip(req *http.Request) (*http.Response, error) {
-	err := <-t.c
-	if err != nil {
-		return nil, err
+	c := make(chan struct{}, 1)
+	cancel[req] = c
+	select {
+	case <-t.unblock:
+		return &http.Response{StatusCode: http.StatusNoContent, Body: &nopReadCloser{}}, nil
+	case <-c:
+		return nil, errors.New("request canceled")
 	}
-	return &http.Response{StatusCode: http.StatusNoContent, Body: &nopReadCloser{}}, nil
 }
 func (t *roundTripperBlocker) unblock() {
-	t.mu.Lock()
-	t.unblocked = true
-	t.mu.Unlock()
 	close(t.c)
 }
 func (t *roundTripperBlocker) CancelRequest(req *http.Request) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.unblocked {
-		return
+	if c, ok := cancel[req]; ok {
+		c <- struct{}{}
 	}
-	t.c <- errors.New("request canceled")
 }
 
 type respRoundTripper struct {
